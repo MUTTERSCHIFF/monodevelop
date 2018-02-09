@@ -25,6 +25,7 @@
 // THE SOFTWARE.
 
 using System;
+using System.Threading.Tasks;
 using MonoDevelop.Components;
 using MonoDevelop.Core;
 using MonoDevelop.Ide.Gui;
@@ -41,6 +42,7 @@ namespace MonoDevelop.Ide.BuildOutputView
 			this.filename = filename;
 			this.ContentName = filename;
 			control = new BuildOutputWidget (filename);
+			control.ProcessLogs (false);
 			control.FileSaved += FileNameChanged;
 		}
 
@@ -49,6 +51,11 @@ namespace MonoDevelop.Ide.BuildOutputView
 			ContentName = $"{GettextCatalog.GetString ("Build Output")} {DateTime.Now.ToString ("hh:mm:ss")}.binlog";
 			control = new BuildOutputWidget (buildOutput, ContentName);
 			control.FileSaved += FileNameChanged;
+		}
+
+		public Task ProcessLogs (bool showDiagnostics)
+		{
+			return control.ProcessLogs (showDiagnostics);
 		}
 
 		void FileNameChanged (object sender, string newName)
