@@ -45,6 +45,9 @@ namespace MonoDevelop.Ide.BuildOutputView
 		ScrollView scrolledWindow;
 		CheckBox showDiagnosticsButton;
 		Button saveButton;
+		Gtk.VBox box;
+		DocumentToolbar toolbar;
+		PathBar pathBar;
 
 		public string ViewContentName { get; private set; }
 		public BuildOutput BuildOutput { get; private set; }
@@ -74,6 +77,21 @@ namespace MonoDevelop.Ide.BuildOutputView
 			ProcessLogs (false);
 
 			BuildOutput.OutputChanged += (sender, e) => ProcessLogs (showDiagnosticsButton.Active);
+			BuildOutput.SiblingSelected += (sender, e)  => SelectRow (e);
+			BuildOutput.IndexChanged += IndexChanged;
+
+			pathBar = new PathBar (this.BuildOutput.CreatePathWidget) {
+				DrawBottomBorder = false
+			};
+			var entries = new PathEntry [] {
+				new PathEntry (GettextCatalog.GetString ("No selection"))
+			};
+			UpdatePathBarEntries (entries);
+			pathBar.Show ();
+
+			box.PackStart (pathBar, true, true, 10);
+			box.ReorderChild (pathBar, 0);
+			box.Show ();
 		}
 
 		void Initialize ()
@@ -105,7 +123,11 @@ namespace MonoDevelop.Ide.BuildOutputView
 				}
 			};
 
-			var toolbar = new DocumentToolbar ();
+			toolbar = new DocumentToolbar ();
+
+			toolbar.AddSpace ();
+			box = new Gtk.VBox ();
+			toolbar.Add (box, true);
 
 			toolbar.AddSpace ();
 			toolbar.Add (showDiagnosticsButton.ToGtkWidget ());
@@ -116,7 +138,7 @@ namespace MonoDevelop.Ide.BuildOutputView
 			treeView.HeadersVisible = false;
 			treeView.Accessible.Identifier = "BuildOutputWidget.TreeView";
 			treeView.Accessible.Description = GettextCatalog.GetString ("Structured build output");
-
+			treeView.SelectionChanged += TreeView_SelectionChanged;
 			var treeColumn = new ListViewColumn {
 				CanResize = false,
 				Expands = true
@@ -133,8 +155,59 @@ namespace MonoDevelop.Ide.BuildOutputView
 			PackStart (scrolledWindow, expand: true, fill: true);
 		}
 
-		CancellationTokenSource cts;
+		void IndexChanged (object sender, int newIndex)
+		{
+			if (newIndex >= BuildOutput.CurrentPath.Length)
+				return;
 
+			if (BuildOutput.CurrentPath [newIndex].Tag != null) {
+				SelectRow (BuildOutput.CurrentPath [newIndex].Tag as BuildOutputNode);
+			}
+		}
+
+		async void SelectRow (BuildOutputNode node)
+		{
+			await Runtime.RunInMainThread (() => {
+				treeView.SelectRow (node);
+			});
+		}
+
+		void TreeView_SelectionChanged (object sender, EventArgs e)
+		{
+			var selectedNode = (sender as Xwt.TreeView).SelectedRow as BuildOutputNode;
+			if (selectedNode == null)
+				return;
+
+			var stack = new Stack<BuildOutputNode> ();
+
+			stack.Push (selectedNode);
+			var parent = selectedNode.Parent;
+
+			while (parent != null) {
+				stack.Push (parent);
+				parent = parent.Parent;
+			}
+
+			var entries = new PathEntry [stack.Count];
+			var index = 0;
+			while (stack.Count > 0) {
+				var node = stack.Pop ();
+				var pathEntry = new PathEntry (dataSource.GetValue (node, 0) as Xwt.Drawing.Image, node.Message);
+				pathEntry.Tag = node;
+				entries [index] = pathEntry;
+				index++;
+			}
+
+			UpdatePathBarEntries (entries);
+		}
+
+		void UpdatePathBarEntries (PathEntry[] entries)
+		{
+			pathBar.SetPath (entries);
+			this.BuildOutput.CurrentPath = pathBar.Path;
+		}
+
+		CancellationTokenSource cts;
 		static void ExpandChildrenWithErrors (TreeView tree, BuildOutputDataSource dataSource, BuildOutputNode parent)
 		{
 			int totalChildren = dataSource.GetChildrenCount (parent);
@@ -147,6 +220,7 @@ namespace MonoDevelop.Ide.BuildOutputView
 			}
 		}
 
+		BuildOutputDataSource dataSource;
 		void ProcessLogs (bool showDiagnostics)
 		{
 			cts?.Cancel ();
@@ -154,7 +228,7 @@ namespace MonoDevelop.Ide.BuildOutputView
 
 			Task.Run (async () => {
 				await Runtime.RunInMainThread (() => {
-					var dataSource = BuildOutput.ToTreeDataSource (showDiagnostics);
+					dataSource = BuildOutput.ToTreeDataSource (showDiagnostics);
 					treeView.DataSource = dataSource;
 					(treeView.Columns [0].Views [0] as ImageCellView).ImageField = dataSource.ImageField;
 					(treeView.Columns [0].Views [1] as TextCellView).MarkupField = dataSource.LabelField;
