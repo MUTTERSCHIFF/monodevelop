@@ -40,12 +40,80 @@ using System.Linq;
 
 namespace MonoDevelop.Ide.BuildOutputView
 {
+	public enum SearchNodesComparation
+	{
+		Match, Contains, StartsWith
+	}
+
+	static class BuildOutputNodeExtensions
+	{
+		public static IEnumerable<BuildOutputNode> SearchNodes (this IEnumerable<BuildOutputNode> sender, BuildOutputNodeType type, string search, SearchNodesComparation searchNodesComparation = SearchNodesComparation.Match)
+		{
+			foreach (var item in sender) {
+				foreach (var node in item.SearchNodes (type, search, searchNodesComparation)) {
+					yield return node;
+				}
+			}
+		}
+
+		public static IEnumerable<BuildOutputNode> SearchNodes (this IEnumerable<BuildOutputNode> sender, BuildOutputNodeType type)
+		{
+			foreach (var item in sender) {
+				foreach (var node in item.SearchNodes (type)) {
+					yield return node;
+				}
+			}
+		}
+
+		public static IEnumerable<BuildOutputNode> SearchNodes (this BuildOutputNode buildOutputNode, BuildOutputNodeType type)
+		{
+			foreach (var item in buildOutputNode.SearchNodesBase (type, null)) {
+				yield return item;
+			}
+		}
+
+		public static IEnumerable<BuildOutputNode> SearchNodes (this BuildOutputNode buildOutputNode, BuildOutputNodeType type, string search, SearchNodesComparation searchNodesComparation = SearchNodesComparation.Match)
+		{
+			Func<BuildOutputNode, bool> func;
+			switch (searchNodesComparation) {
+			case SearchNodesComparation.Contains:
+				func = s => (s?.Message ?? "").Contains (search);
+				break;
+			case SearchNodesComparation.StartsWith:
+				func = s => (s?.Message ?? "").StartsWith (search, StringComparison.Ordinal);
+				break;
+			default:
+				func = s => search == s?.Message;
+				break;
+			}
+
+			foreach (var item in buildOutputNode.SearchNodesBase (type, func)) {
+				yield return item;
+			}
+		}
+
+		static IEnumerable<BuildOutputNode> SearchNodesBase (this BuildOutputNode buildOutputNode, BuildOutputNodeType type, Func<BuildOutputNode, bool> itemComparationHandler)
+		{
+			if (buildOutputNode.Children != null) {
+				foreach (var node in buildOutputNode.Children) {
+					foreach (var item in SearchNodesBase (node, type, itemComparationHandler)) {
+						yield return item;
+					}
+				}
+			}
+
+			if (itemComparationHandler == null) {
+				if (type == buildOutputNode.NodeType)
+					yield return buildOutputNode;
+			} else if (itemComparationHandler (buildOutputNode))
+				yield return buildOutputNode;
+		}
+	}
+
 	class BuildOutput : IDisposable
 	{
 		BuildOutputProgressMonitor progressMonitor;
 		readonly List<BuildOutputProcessor> projects = new List<BuildOutputProcessor> ();
-		List<BuildOutputNode> treeRootNodes;
-
 		public event EventHandler OutputChanged;
 
 		public ProgressMonitor GetProgressMonitor ()
@@ -168,7 +236,7 @@ namespace MonoDevelop.Ide.BuildOutputView
 		}
 
 
-		public List<BuildOutputNode> GetTreeRootNodes (bool includeDiagnostics) 
+		public List<BuildOutputNode> GetTreeRootNodes (bool includeDiagnostics)
 		{
 			if (includeDiagnostics) {
 				return GetRootNodes ().ToList ();
@@ -184,13 +252,11 @@ namespace MonoDevelop.Ide.BuildOutputView
 			}
 		}
 
-		public BuildOutputDataSource ToTreeDataSource (bool includeDiagnostics)
+		public void ProcessProjects () 
 		{
 			foreach (var p in projects) {
 				p.Process ();
 			}
-			treeRootNodes = GetTreeRootNodes (includeDiagnostics);
-			return new BuildOutputDataSource (treeRootNodes);
 		}
 
 		bool disposed = false;
@@ -271,7 +337,9 @@ namespace MonoDevelop.Ide.BuildOutputView
 		static readonly Xwt.Drawing.Image taskIcon = ImageService.GetIcon (Ide.Gui.Stock.Execute, Gtk.IconSize.Menu);
 		static readonly Xwt.Drawing.Image warningIcon = ImageService.GetIcon (Ide.Gui.Stock.Warning, Gtk.IconSize.Menu);
 
+
 		readonly List<BuildOutputNode> rootNodes;
+
 		public DataField<Xwt.Drawing.Image> ImageField = new DataField<Xwt.Drawing.Image> (0);
 		public DataField<string> LabelField = new DataField<string> (1);
 
@@ -299,7 +367,6 @@ namespace MonoDevelop.Ide.BuildOutputView
 					return rootNodes [index];
 				}
 			}
-
 			return null;
 		}
 

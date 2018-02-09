@@ -29,6 +29,7 @@ using System.Threading.Tasks;
 using MonoDevelop.Components;
 using MonoDevelop.Core;
 using MonoDevelop.Ide.Gui;
+using MonoDevelop.Ide.Tasks;
 
 namespace MonoDevelop.Ide.BuildOutputView
 {
@@ -97,6 +98,11 @@ namespace MonoDevelop.Ide.BuildOutputView
 		{
 			control.Dispose ();
 			base.Dispose ();
+		}
+
+		public Task GoTo (string description, string file, string project, string path)
+		{
+			return control.GoTo (description, file, project, path);
 		}
 	}
 }

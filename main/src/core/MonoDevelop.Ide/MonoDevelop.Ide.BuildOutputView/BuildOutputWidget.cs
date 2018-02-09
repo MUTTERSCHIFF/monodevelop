@@ -36,6 +36,8 @@ using MonoDevelop.Ide.Gui.Dialogs;
 using MonoDevelop.Components;
 using MonoDevelop.Core;
 using MonoDevelop.Components.AtkCocoaHelper;
+using MonoDevelop.Ide.Tasks;
+using System.Linq;
 
 namespace MonoDevelop.Ide.BuildOutputView
 {
@@ -48,6 +50,8 @@ namespace MonoDevelop.Ide.BuildOutputView
 
 		public string ViewContentName { get; private set; }
 		public BuildOutput BuildOutput { get; private set; }
+
+		List<BuildOutputNode> treeBuildOutputNodes;
 
 		public event EventHandler<string> FileSaved;
 
@@ -132,6 +136,17 @@ namespace MonoDevelop.Ide.BuildOutputView
 			PackStart (scrolledWindow, expand: true, fill: true);
 		}
 
+		internal Task GoTo (string description, string file, string project, string path)
+		{
+			var projectNode = treeBuildOutputNodes.SearchNodes (BuildOutputNodeType.Build, project).FirstOrDefault ();
+			var cscTargetNode = projectNode.SearchNodes (BuildOutputNodeType.Target, "Csc").FirstOrDefault ();
+			var error = projectNode.SearchNodes (BuildOutputNodeType.Error, description, SearchNodesComparation.StartsWith).FirstOrDefault ();
+			return Xwt.Application.InvokeAsync (() => {
+				treeView.ExpandToRow (error);
+				treeView.FocusedRow = error;
+			});
+		}
+
 		CancellationTokenSource cts;
 
 		static void ExpandChildrenWithErrors (TreeView tree, BuildOutputDataSource dataSource, BuildOutputNode parent)
@@ -154,17 +169,21 @@ namespace MonoDevelop.Ide.BuildOutputView
 
 			return Task.Run (async () => {
 				await Runtime.RunInMainThread (() => {
-					var dataSource = BuildOutput.ToTreeDataSource (showDiagnostics);
-					treeView.DataSource = dataSource;
-					(treeView.Columns [0].Views [0] as ImageCellView).ImageField = dataSource.ImageField;
-					(treeView.Columns [0].Views [1] as TextCellView).MarkupField = dataSource.LabelField;
+
+					BuildOutput.ProcessProjects ();
+					treeBuildOutputNodes = BuildOutput.GetTreeRootNodes (showDiagnostics);
+					var buildOutputDataSource = new BuildOutputDataSource (treeBuildOutputNodes);
+					treeView.DataSource = buildOutputDataSource;
+
+					(treeView.Columns [0].Views [0] as ImageCellView).ImageField = buildOutputDataSource.ImageField;
+					(treeView.Columns [0].Views [1] as TextCellView).MarkupField = buildOutputDataSource.LabelField;
 
 					// Expand root nodes and nodes with errors
-					int rootsCount = dataSource.GetChildrenCount (null);
+					int rootsCount = buildOutputDataSource.GetChildrenCount (null);
 					for (int i = 0; i < rootsCount; i++) {
-						var root = dataSource.GetChild (null, i) as BuildOutputNode;
+						var root = buildOutputDataSource.GetChild (null, i) as BuildOutputNode;
 						treeView.ExpandRow (root, false);
-						ExpandChildrenWithErrors (treeView, dataSource, root);
+						ExpandChildrenWithErrors (treeView, buildOutputDataSource, root);
 					}
 				});
 			}, cts.Token);
