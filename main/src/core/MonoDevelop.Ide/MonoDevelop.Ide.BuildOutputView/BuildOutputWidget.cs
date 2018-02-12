@@ -126,7 +126,6 @@ namespace MonoDevelop.Ide.BuildOutputView
 
 			toolbar = new DocumentToolbar ();
 
-			toolbar.AddSpace ();
 			box = new Gtk.VBox ();
 			toolbar.Add (box, true);
 
@@ -175,7 +174,7 @@ namespace MonoDevelop.Ide.BuildOutputView
 
 		void TreeView_SelectionChanged (object sender, EventArgs e)
 		{
-			var selectedNode = (sender as Xwt.TreeView).SelectedRow as BuildOutputNode;
+			var selectedNode = treeView.SelectedRow as BuildOutputNode;
 			if (selectedNode == null)
 				return;
 
